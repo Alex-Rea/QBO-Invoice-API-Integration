@@ -1,0 +1,664 @@
+var scriptProperties = PropertiesService.getScriptProperties();
+
+var CLIENT_ID = scriptProperties.getProperty("CLIENT_ID");
+var CLIENT_SECRET = scriptProperties.getProperty("CLIENT_SECRET");
+var COMPANY_ID = scriptProperties.getProperty("COMPANY_ID");
+var REFRESH_TOKEN = scriptProperties.getProperty("REFRESH_TOKEN");
+var BASE_URL = "https://sandbox-quickbooks.api.intuit.com/v3/company/";
+
+
+function getAccessToken() {
+  const tokenUrl = "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer";
+
+  const headers = {
+    "Content-Type": "application/x-www-form-urlencoded"
+  };
+
+  const payload = "grant_type=refresh_token"
+                + "&refresh_token=" + encodeURIComponent(REFRESH_TOKEN)
+                + "&client_id=" + encodeURIComponent(CLIENT_ID)
+                + "&client_secret=" + encodeURIComponent(CLIENT_SECRET);
+
+  const options = {
+    method: "post",
+    headers: headers,
+    payload: payload,
+    muteHttpExceptions: true
+  };
+
+  const response = UrlFetchApp.fetch(tokenUrl, options);
+  const json = JSON.parse(response.getContentText());
+
+  if (json.access_token) {
+    Logger.log("✅ Access Token: " + json.access_token);
+    
+    // ✅ SAVE UPDATED REFRESH TOKEN SECURELY
+    if (json.refresh_token) {
+      PropertiesService.getScriptProperties().setProperty("REFRESH_TOKEN", json.refresh_token);
+      Logger.log("🔄 Updated REFRESH TOKEN saved.");
+    }
+    return json.access_token;
+  } else {
+    Logger.log("❌ Error retrieving access token: " + response.getContentText());
+    return null;
+  }
+}
+
+
+function refreshInvoices() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var menuSheet = ss.getSheetByName("Menu");
+
+  if (!menuSheet) {
+    Logger.log("❌ Error: 'Menu' sheet not found.");
+    return;
+  }
+
+  // ✅ Step 1: Check if A2 and A3 are both checked
+  var checkA2 = menuSheet.getRange("A2").getValue();
+  var checkA3 = menuSheet.getRange("A3").getValue();
+
+  if (!(checkA2 && checkA3)) {
+    Logger.log("❌ A2 and A3 must be checked to refresh invoices.");
+    return;
+  }
+
+  Logger.log("✅ Both checkboxes checked in 'Menu'! Refreshing Invoices...");
+
+  // ✅ Step 2: Delete all existing invoice sheets
+  var sheets = ss.getSheets();
+  var invoiceSheets = sheets.filter(sheet => sheet.getName().startsWith("Inv_"));
+  Logger.log("🗑 Found " + invoiceSheets.length + " invoice sheets to delete.");
+
+  invoiceSheets.forEach(sheet => {
+    try {
+      ss.deleteSheet(sheet);
+      Logger.log("🗑 Deleted: " + sheet.getName());
+    } catch (e) {
+      Logger.log("⚠️ Skipping already deleted sheet: " + e.message);
+    }
+  });
+
+  // ✅ Step 3: Fetch new invoices from QuickBooks
+  var accessToken = getAccessToken();
+  if (!accessToken) {
+    Logger.log("❌ No access token retrieved!");
+    return;
+  }
+
+  var query = "SELECT * FROM Invoice ORDERBY TxnDate DESC STARTPOSITION 1 MAXRESULTS 10";
+  var apiUrl = BASE_URL + COMPANY_ID + "/query?query=" + encodeURIComponent(query);
+
+  var headers = {
+    "Authorization": "Bearer " + accessToken,
+    "Accept": "application/json"
+  };
+
+  var options = {
+    method: "get",
+    headers: headers,
+    muteHttpExceptions: true
+  };
+
+  var response = UrlFetchApp.fetch(apiUrl, options);
+  var json = JSON.parse(response.getContentText());
+
+  if (json.Fault) {
+    Logger.log("❌ API Error: " + JSON.stringify(json.Fault));
+    return;
+  }
+
+  if (!json.QueryResponse || !json.QueryResponse.Invoice) {
+    Logger.log("⚠️ No invoices found in QuickBooks!");
+    return;
+  }
+
+  var invoices = json.QueryResponse.Invoice;
+  Logger.log("✅ Invoices Retrieved: " + invoices.length);
+
+  // ✅ Step 4: Create new invoice sheets & store links with `gid`
+  var invoiceLinks = [];
+  invoices.forEach(function(invoice, index) {
+    var invoiceNumber = invoice.DocNumber || "Invoice_" + invoice.Id;
+    var invoiceTabName = "Inv_" + invoiceNumber;
+
+    var newSheet = ss.insertSheet(invoiceTabName);
+    formatInvoiceSheet(newSheet, invoice);
+
+    // ✅ Use `gid` for links
+    var sheetGid = newSheet.getSheetId();
+    var linkFormula = `=HYPERLINK("https://docs.google.com/spreadsheets/d/${ss.getId()}/edit#gid=${sheetGid}", "${invoiceNumber}")`;
+    invoiceLinks.push([linkFormula]);
+  });
+
+  // ✅ Step 5: Place links in "Menu" (A5-E5, A6-E6, etc.)
+  var linkRange = menuSheet.getRange(5, 1, invoiceLinks.length, 1);
+  linkRange.setFormulas(invoiceLinks);
+
+  // ✅ Step 6: Reset A2 & A3 checkboxes
+  menuSheet.getRange("A2").setValue(false);
+  menuSheet.getRange("A3").setValue(false);
+
+  Logger.log("✅ Invoice refresh complete!");
+}
+
+
+
+
+function formatInvoiceSheet(newSheet, invoice) {
+  newSheet.getRange("A1").setValue("Invoice Number: " + (invoice.DocNumber || "N/A"));
+  newSheet.getRange("A2").setValue("Date: " + (invoice.TxnDate || "N/A"));
+  newSheet.getRange("A3").setValue("Customer: " + (invoice.CustomerRef ? invoice.CustomerRef.name : "Unknown"));
+  
+  // ✅ Auto-updating total
+  newSheet.getRange("A4").setFormula('="Total: $" & SUM(D7:D)');
+
+  newSheet.getRange("A6").setValue("Item");
+  newSheet.getRange("B6").setValue("Quantity");
+  newSheet.getRange("C6").setValue("Rate");
+  newSheet.getRange("D6").setValue("Amount");
+  newSheet.getRange("E6").setValue("ItemRef"); // Store ItemRef for QBO
+
+var row = 7;
+
+  if (invoice.Line && invoice.Line.length > 0) {
+    invoice.Line.forEach(function(line) {
+      if (line.SalesItemLineDetail) {
+        var itemRef = line.SalesItemLineDetail.ItemRef ? line.SalesItemLineDetail.ItemRef.value : "N/A";
+        
+        // ✅ **Extract the actual Item Name instead of Sales Description**
+        var itemName = (itemRef && itemRef !== "N/A") ? getItemNameById(itemRef) : "Unknown";
+        newSheet.getRange("A" + row).setValue(itemName);
+        newSheet.getRange("B" + row).setValue(line.SalesItemLineDetail.Qty || 0);
+        newSheet.getRange("C" + row).setValue(line.SalesItemLineDetail.UnitPrice || 0);
+        newSheet.getRange("D" + row).setFormula("=B" + row + "*C" + row);
+        newSheet.getRange("E" + row).setValue(itemRef); // Store ItemRef
+
+        row++;
+      }
+    });
+  } else {
+    newSheet.getRange("A7").setValue("⚠️ No items found for this invoice.");
+  }
+
+  newSheet.getRange("D1").setValue("Push Changes");
+  newSheet.getRange("D2").insertCheckboxes();
+  newSheet.getRange("D3").insertCheckboxes();
+}
+
+
+function getSyncToken(invoiceId) {
+  const accessToken = getAccessToken();
+  if (!accessToken) {
+    Logger.log("❌ No access token, cannot fetch SyncToken.");
+    return null;
+  }
+
+  const apiUrl = BASE_URL + COMPANY_ID + "/invoice/" + invoiceId;
+  
+  const headers = {
+    "Authorization": "Bearer " + accessToken,
+    "Accept": "application/json"
+  };
+
+  const options = {
+    method: "get",
+    headers: headers,
+    muteHttpExceptions: true
+  };
+
+  const response = UrlFetchApp.fetch(apiUrl, options);
+  const json = JSON.parse(response.getContentText());
+
+  if (json.Invoice && json.Invoice.SyncToken) {
+    Logger.log("✅ SyncToken Retrieved: " + json.Invoice.SyncToken);
+    return json.Invoice.SyncToken;
+  } else {
+    Logger.log("❌ Failed to retrieve SyncToken.");
+    return null;
+  }
+}
+
+function getInvoiceByDocNumber(docNumber) {
+  try {
+    const accessToken = getAccessToken();
+    if (!accessToken) {
+      Logger.log("❌ No access token, cannot retrieve invoice.");
+      return null;
+    }
+
+    const query = "SELECT Id, SyncToken, CustomerRef FROM Invoice WHERE DocNumber = '" + docNumber + "'";
+    const apiUrl = BASE_URL + COMPANY_ID + "/query?query=" + encodeURIComponent(query);
+
+    const headers = {
+      "Authorization": "Bearer " + accessToken,
+      "Accept": "application/json"
+    };
+
+    const options = {
+      method: "get",
+      headers: headers,
+      muteHttpExceptions: true
+    };
+
+    const response = UrlFetchApp.fetch(apiUrl, options);
+    const json = JSON.parse(response.getContentText());
+
+    if (json.QueryResponse && json.QueryResponse.Invoice && json.QueryResponse.Invoice.length > 0) {
+      Logger.log("✅ Invoice found: " + JSON.stringify(json.QueryResponse.Invoice[0]));
+      return json.QueryResponse.Invoice[0];
+    } else {
+      Logger.log("❌ Invoice not found for DocNumber: " + docNumber);
+      return null;
+    }
+  } catch (error) {
+    Logger.log("❌ Error in getInvoiceByDocNumber: " + error.message);
+    return null;
+  }
+}
+
+
+function getInvoiceIdByDocNumber(docNumber) {
+  const accessToken = getAccessToken();
+  if (!accessToken) {
+    Logger.log("❌ No access token, cannot fetch invoice ID.");
+    return null;
+  }
+
+  const query = "SELECT Id FROM Invoice WHERE DocNumber = '" + docNumber + "'";
+  const apiUrl = BASE_URL + COMPANY_ID + "/query?query=" + encodeURIComponent(query);
+
+  const headers = {
+    "Authorization": "Bearer " + accessToken,
+    "Accept": "application/json"
+  };
+
+  const options = {
+    method: "get",
+    headers: headers,
+    muteHttpExceptions: true
+  };
+
+  const response = UrlFetchApp.fetch(apiUrl, options);
+  const json = JSON.parse(response.getContentText());
+
+  if (json.QueryResponse && json.QueryResponse.Invoice && json.QueryResponse.Invoice.length > 0) {
+    Logger.log("✅ Invoice found: " + JSON.stringify(json.QueryResponse.Invoice[0]));
+    return json.QueryResponse.Invoice[0].Id;
+  } else {
+    Logger.log("❌ No existing invoice found for DocNumber: " + docNumber);
+    return null;
+  }
+}
+
+
+function getItemNameById(itemId) {
+  if (!itemId || itemId === "N/A") {
+    Logger.log("⚠️ Skipping item lookup: No valid item ID.");
+    return null;
+  }
+
+  const accessToken = getAccessToken();
+  if (!accessToken) {
+    Logger.log("❌ No access token, cannot fetch item name.");
+    return null;
+  }
+
+  const query = "SELECT Name FROM Item WHERE Id = '" + itemId + "'";
+  const apiUrl = BASE_URL + COMPANY_ID + "/query?query=" + encodeURIComponent(query);
+
+  const headers = {
+    "Authorization": "Bearer " + accessToken,
+    "Accept": "application/json"
+  };
+
+  const options = {
+    method: "get",
+    headers: headers,
+    muteHttpExceptions: true
+  };
+
+  const response = UrlFetchApp.fetch(apiUrl, options);
+  const json = JSON.parse(response.getContentText());
+
+  if (json.QueryResponse && json.QueryResponse.Item && json.QueryResponse.Item.length > 0) {
+    Logger.log("✅ Item Found: " + JSON.stringify(json.QueryResponse.Item[0]));
+    return json.QueryResponse.Item[0].Name;
+  } else {
+    Logger.log("❌ Item ID not found in QuickBooks: " + itemId);
+    return null;
+  }
+}
+
+function getCustomerIdByName(customerName) {
+  if (!customerName) {
+    Logger.log("❌ No customer name provided.");
+    return null;
+  }
+
+  const accessToken = getAccessToken();
+  if (!accessToken) {
+    Logger.log("❌ No access token, cannot fetch customer.");
+    return null;
+  }
+
+const query = "SELECT Id, DisplayName FROM Customer WHERE DisplayName = '" + customerName + "'";
+  const apiUrl = BASE_URL + COMPANY_ID + "/query?query=" + encodeURIComponent(query);
+
+  const headers = {
+    "Authorization": "Bearer " + accessToken,
+    "Accept": "application/json"
+  };
+
+  const options = {
+    method: "get",
+    headers: headers,
+    muteHttpExceptions: true
+  };
+
+  const response = UrlFetchApp.fetch(apiUrl, options);
+  const json = JSON.parse(response.getContentText());
+
+  if (json.QueryResponse && json.QueryResponse.Customer && json.QueryResponse.Customer.length > 0) {
+    Logger.log("✅ Customer Found: " + JSON.stringify(json.QueryResponse.Customer[0]));
+    return json.QueryResponse.Customer[0].Id;
+  } else {
+    Logger.log("❌ Customer Not Found in QuickBooks: " + customerName);
+    return null;
+  }
+}
+
+
+function getItemRefByName(itemName) {
+  const accessToken = getAccessToken();
+  if (!accessToken) {
+    Logger.log("❌ No access token, cannot fetch item.");
+    return null;
+  }
+
+  const query = "SELECT Id, Name FROM Item WHERE Name = '" + itemName + "'";
+  const apiUrl = BASE_URL + COMPANY_ID + "/query?query=" + encodeURIComponent(query);
+
+  const headers = {
+    "Authorization": "Bearer " + accessToken,
+    "Accept": "application/json"
+  };
+
+  const options = {
+    method: "get",
+    headers: headers,
+    muteHttpExceptions: true
+  };
+
+  const response = UrlFetchApp.fetch(apiUrl, options);
+  const json = JSON.parse(response.getContentText());
+
+  if (json.QueryResponse && json.QueryResponse.Item && json.QueryResponse.Item.length > 0) {
+    Logger.log("✅ Item found: " + JSON.stringify(json.QueryResponse.Item[0]));
+    return {
+      value: json.QueryResponse.Item[0].Id,
+      name: json.QueryResponse.Item[0].Name
+    };
+  } else {
+    Logger.log("❌ Item not found in QuickBooks: " + itemName);
+    return null;
+  }
+}
+
+
+function updateInvoiceInQBO(invoiceData) {
+  try {
+    const accessToken = getAccessToken();
+    if (!accessToken) {
+      Logger.log("❌ No access token, cannot update invoice.");
+      return;
+    }
+
+    // Fetch existing invoice details to get SyncToken & Customer ID
+    const existingInvoice = getInvoiceByDocNumber(invoiceData.DocNumber);
+    
+    if (!existingInvoice || !existingInvoice.Id || !existingInvoice.SyncToken) {
+      Logger.log("❌ Could not retrieve invoice details for updating.");
+      return;
+    }
+
+    // Update SyncToken & CustomerRef with ID
+    invoiceData.Id = existingInvoice.Id;
+    invoiceData.SyncToken = existingInvoice.SyncToken;
+    invoiceData.CustomerRef = { "value": existingInvoice.CustomerRef.value };  // Ensure we use Customer ID
+
+    // Ensure each line item includes required fields
+    for (var i = 0; i < invoiceData.Line.length; i++) {
+      invoiceData.Line[i].SalesItemLineDetail.TaxCodeRef = { "value": "NON" };  // Ensure tax code
+    }
+
+    const apiUrl = BASE_URL + COMPANY_ID + "/invoice";
+
+    const headers = {
+      "Authorization": "Bearer " + accessToken,
+      "Accept": "application/json",
+      "Content-Type": "application/json"
+    };
+
+    const payload = JSON.stringify(invoiceData);
+    Logger.log("📤 Sending Invoice Update (UPDATE): " + payload);
+
+    const options = {
+      method: "post",
+      headers: headers,
+      muteHttpExceptions: true,
+      payload: payload
+    };
+
+    const response = UrlFetchApp.fetch(apiUrl, options);
+    Logger.log("✅ QuickBooks API Response: " + response.getContentText());
+  } catch (error) {
+    Logger.log("❌ Error in updateInvoiceInQBO: " + error.message);
+  }
+}
+
+
+
+function onEditTrigger(e) {
+  var sheet = e.source.getActiveSheet();
+  var range = e.range;
+  
+  // ✅ Check if edit is on the "Menu" sheet at A2 or A3
+  if (sheet.getName() === "Menu" && (range.getA1Notation() === "A2" || range.getA1Notation() === "A3")) {
+    var check1 = sheet.getRange("A2").getValue();
+    var check2 = sheet.getRange("A3").getValue();
+
+    if (check1 === true && check2 === true) {
+      Logger.log("✅ Both checkboxes checked in 'Menu'! Refreshing Invoices...");
+      refreshInvoices(); // Function to delete old invoices and fetch new ones
+
+      // ✅ Reset checkboxes AFTER running
+      sheet.getRange("A2").setValue(false);
+      sheet.getRange("A3").setValue(false);
+    }
+  }
+
+  // ✅ Existing trigger for D2 and D3 in invoice sheets
+  if (range.getA1Notation() === "D2" || range.getA1Notation() === "D3") {
+    var checkD2 = sheet.getRange("D2").getValue();
+    var checkD3 = sheet.getRange("D3").getValue();
+
+    if (checkD2 === true && checkD3 === true) {
+      var invoiceNumber = sheet.getRange("A1").getValue().replace("Invoice Number: ", "").trim();
+      if (invoiceNumber) {
+        Logger.log("✅ Both checkboxes checked! Syncing Invoice: " + invoiceNumber);
+        pushInvoiceToQBO(sheet);
+      } else {
+        Logger.log("❌ No invoice number found in A1.");
+      }
+
+      // ✅ Reset checkboxes AFTER running
+      sheet.getRange("D2").setValue(false);
+      sheet.getRange("D3").setValue(false);
+    }
+  }
+}
+
+
+function createInstallableTrigger() {
+  var triggers = ScriptApp.getProjectTriggers();
+  
+  // Avoid duplicate triggers
+  for (var i = 0; i < triggers.length; i++) {
+    if (triggers[i].getHandlerFunction() === "onEditTrigger") {
+      Logger.log("🚀 Installable trigger already exists!");
+      return;
+    }
+  }
+  
+  ScriptApp.newTrigger("onEditTrigger")
+    .forSpreadsheet(SpreadsheetApp.getActiveSpreadsheet())
+    .onEdit()
+    .create();
+  
+  Logger.log("✅ Installable trigger created!");
+}
+
+function pushInvoiceToQBO(sheet) {
+  try {
+    Logger.log("📌 pushInvoiceToQBO Started for: " + sheet.getName());
+
+    var invoiceNumber = sheet.getRange("A1").getValue().replace("Invoice Number: ", "").trim();
+    var txnDate = sheet.getRange("A2").getValue().replace("Date: ", "").trim();
+    var customer = sheet.getRange("A3").getValue().replace("Customer: ", "").trim();
+    var total = parseFloat(sheet.getRange("A4").getValue().replace("Total: $", "").trim());
+
+    Logger.log("📆 Date: " + txnDate);
+    Logger.log("👤 Customer: " + customer);
+    Logger.log("💰 Total Before Recalculation: " + total);
+
+    // **Step 1: Get Existing Invoice ID**
+    var invoiceId = getInvoiceIdByDocNumber(invoiceNumber);
+    Logger.log("✅ Existing Invoice ID: " + invoiceId);
+
+    if (!invoiceId) {
+      Logger.log("❌ No existing invoice found. Creating a new one instead.");
+      createInvoiceInQBO(sheet);
+      return;
+    }
+
+    var invoiceData = {
+      "Id": invoiceId,
+      "SyncToken": getSyncToken(invoiceId),
+      "DocNumber": invoiceNumber,
+      "TxnDate": txnDate,
+      "CustomerRef": { "name": customer },
+      "TotalAmt": 0,
+      "Line": []
+    };
+
+    Logger.log("🔄 Collecting invoice line items...");
+
+    var lastRow = sheet.getLastRow();
+    var calculatedTotal = 0;
+
+    for (var row = 7; row <= lastRow; row++) {
+      var itemName = sheet.getRange("A" + row).getValue().trim();
+      var qty = parseInt(sheet.getRange("B" + row).getValue(), 10);
+      var rate = parseFloat(sheet.getRange("C" + row).getValue());
+      var amount = parseFloat(sheet.getRange("D" + row).getValue());
+      var itemRef = sheet.getRange("E" + row).getValue();
+
+      if (itemName && qty && rate && amount && itemRef) {
+        Logger.log("🛒 Item: " + itemName + " | Qty: " + qty + " | Rate: " + rate + " | Amount: " + amount + " | ItemRef: " + itemRef);
+
+        invoiceData.Line.push({
+          "DetailType": "SalesItemLineDetail",
+          "Amount": amount,
+          "Description": itemName,
+          "SalesItemLineDetail": {
+            "ItemRef": { "value": String(itemRef) },
+            "Qty": qty,
+            "UnitPrice": rate,
+            "TaxCodeRef": { "value": "NON" }
+          }
+        });
+
+        calculatedTotal += amount;
+      }
+    }
+
+    invoiceData.TotalAmt = calculatedTotal;
+    Logger.log("💰 Final Calculated Total: " + invoiceData.TotalAmt);
+
+    Logger.log("📤 Sending Invoice Update (UPDATE): " + JSON.stringify(invoiceData));
+    updateInvoiceInQBO(invoiceData);
+
+  } catch (error) {
+    Logger.log("❌ Error in pushInvoiceToQBO: " + error.message);
+  }
+}
+
+/**
+ * ✅ Run this function once to set up the trigger!
+ */
+function setup() {
+  createInstallableTrigger();
+}
+
+
+
+
+
+
+
+
+function testBaseURL() {
+  const accessToken = getAccessToken();
+  if (!accessToken) {
+    Logger.log("❌ No access token retrieved.");
+    return;
+  }
+
+  const testUrl = BASE_URL + COMPANY_ID + "/companyinfo/" + COMPANY_ID;
+  
+  const headers = {
+    "Authorization": "Bearer " + accessToken,
+    "Accept": "application/json"
+  };
+
+  const options = {
+    method: "get",
+    headers: headers,
+    muteHttpExceptions: true
+  };
+
+  const response = UrlFetchApp.fetch(testUrl, options);
+  Logger.log("✅ QuickBooks API Response: " + response.getContentText());
+}
+
+
+
+function authorizeExternalRequests() {
+  UrlFetchApp.fetch("https://www.google.com");
+  Logger.log("✅ External requests authorized.");
+}
+
+
+
+function testPushInvoice() {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Inv_1032"); // Change to the name of an actual invoice tab
+  if (sheet) {
+    pushInvoiceToQBO(sheet);
+  } else {
+    Logger.log("❌ Error: Invoice sheet not found.");
+  }
+}
+
+function testItemRefLookup() {
+  var itemName = "Rocks"; // Replace with an actual item name
+  var itemRef = getItemRefByName(itemName);
+  Logger.log("✅ Item Ref for " + itemName + ": " + JSON.stringify(itemRef));
+}
+
+
+
+
+
+
+
