@@ -1,0 +1,31 @@
+function testTokenEncryption() {
+    var decryptedToken = getDecryptedRefreshToken();
+    Logger.log("🔓 Decrypted Refresh Token: " + decryptedToken);
+}
+
+function testTokenStorage() {
+    var sampleToken = "Sample-Refresh-Token-123";  // Replace with an actual token
+    storeRefreshToken(sampleToken);
+
+    var retrievedToken = getDecryptedRefreshToken();
+    Logger.log("🔓 Decrypted Token: " + retrievedToken);
+}
+
+function testEncryption() {
+    var originalData = "This is a secret message.";
+    var encryptedData = encryptData(originalData);
+    Logger.log("🔒 Encrypted: " + encryptedData);
+
+    var decryptedData = decryptData(encryptedData);
+    Logger.log("🔓 Decrypted: " + decryptedData);
+}
+
+function testDecryption() {
+    var decryptedToken = getDecryptedRefreshToken();
+    Logger.log("🔓 Decrypted Refresh Token: " + decryptedToken);
+}
+
+function authorizeExternalRequests() {
+  fetchWithRetry("https://www.google.com");
+  Logger.log("✅ External requests authorized.");
+}
