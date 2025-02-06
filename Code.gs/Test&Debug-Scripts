@@ -29,3 +29,9 @@ function authorizeExternalRequests() {
   fetchWithRetry("https://www.google.com");
   Logger.log("✅ External requests authorized.");
 }
+
+function testItemRefLookup() {
+  var itemName = "Rocks"; // Replace with an actual item name
+  var itemRef = getItemRefByName(itemName);
+  Logger.log("✅ Item Ref for " + itemName + ": " + JSON.stringify(itemRef));
+}
