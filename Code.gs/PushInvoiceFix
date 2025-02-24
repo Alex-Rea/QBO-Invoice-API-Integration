@@ -1,0 +1,98 @@
+function pushInvoiceToQBO(sheet) {
+  checkRateLimit();  // 🛡 Prevent hitting API rate limits
+
+  try {
+    Logger.log("📌 Starting invoice sync for sheet: " + sheet.getName());
+
+    // ✅ Extract invoice details from the sheet
+    var invoiceNumber = sheet.getRange("A1").getValue().replace("Invoice Number: ", "").trim();
+    var txnDate = sheet.getRange("A2").getValue().replace("Date: ", "").trim();
+    var customer = sheet.getRange("A3").getValue().replace("Customer: ", "").trim();
+    var total = parseFloat(sheet.getRange("A4").getValue().replace("Total: $", "").trim());
+
+    Logger.log("📆 Transaction Date: " + txnDate);
+    Logger.log("👤 Customer Name: " + customer);
+    Logger.log("💰 Invoice Total: " + total);
+
+    // ✅ Check if the invoice already exists in QuickBooks
+    var invoiceId = getInvoiceIdByDocNumber(invoiceNumber);
+    if (!invoiceId) {
+      Logger.log("❌ Invoice not found. Creating a new invoice.");
+      createInvoiceInQBO(sheet);
+      return;
+    }
+
+    // ✅ Fetch SyncToken for the existing invoice
+    var syncTokens = getAllSyncTokens([invoiceId]);
+    var syncToken = syncTokens[invoiceId] || "0";  // Use default "0" if missing
+
+    // ✅ Prepare the invoice data for update
+    var invoiceData = {
+      "Id": invoiceId,
+      "SyncToken": syncToken,
+      "DocNumber": invoiceNumber,
+      "TxnDate": txnDate,
+      "CustomerRef": { "name": customer },
+      "TotalAmt": 0,  // Will be calculated dynamically
+      "Line": []
+    };
+
+    Logger.log("🔄 Collecting line items for invoice...");
+
+    // ✅ Read line items from the sheet
+    var lastRow = sheet.getLastRow();
+    var calculatedTotal = 0;
+
+    for (var row = 7; row <= lastRow; row++) {
+      var itemName = sheet.getRange("A" + row).getValue().trim();
+      var qty = parseFloat(sheet.getRange("B" + row).getValue());
+      var rate = parseFloat(sheet.getRange("C" + row).getValue());
+      var amount = parseFloat(sheet.getRange("D" + row).getValue());
+      var itemRef = sheet.getRange("E" + row).getValue();
+
+      // ✅ Add line item if all fields are valid
+      if (itemName && qty && rate && amount && itemRef) {
+        Logger.log(`🛒 Item: ${itemName} | Qty: ${qty} | Rate: ${rate} | Amount: ${amount} | ItemRef: ${itemRef}`);
+
+        invoiceData.Line.push({
+          "DetailType": "SalesItemLineDetail",
+          "Amount": amount,
+          "Description": itemName,  // Initially set to the sheet-provided name
+          "SalesItemLineDetail": {
+            "ItemRef": { "value": String(itemRef) },
+            "Qty": qty,
+            "UnitPrice": rate,
+            "TaxCodeRef": { "value": "NON" }
+          }
+        });
+
+        calculatedTotal += amount;
+      }
+    }
+
+    // ✅ Update the invoice total based on actual calculations
+    invoiceData.TotalAmt = calculatedTotal;
+
+    // ✅ Overwrite item names with correct names from QuickBooks (if mismatched)
+    invoiceData.Line.forEach((line) => {
+      if (line.SalesItemLineDetail) {
+        var itemId = line.SalesItemLineDetail.ItemRef.value;
+        var correctName = getItemNameById(itemId); // Fetch correct name from QuickBooks
+
+        if (correctName && line.Description !== correctName) {
+          Logger.log(`🔄 Overwriting Description: ${line.Description} → ${correctName}`);
+          line.Description = correctName;  // Fix mismatched item names
+        }
+      }
+    });
+
+    Logger.log("💰 Final Calculated Total: " + invoiceData.TotalAmt);
+    Logger.log("📤 Sending Invoice Update (UPDATE): " + JSON.stringify(invoiceData));
+
+    // ✅ Push the updated invoice to QuickBooks
+    updateInvoiceInQBO(invoiceData);
+
+  } catch (error) {
+    Logger.log("❌ Error in pushInvoiceToQBO: " + error.message);
+  }
+}
