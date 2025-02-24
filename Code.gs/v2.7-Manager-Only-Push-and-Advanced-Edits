@@ -491,7 +491,11 @@ function deleteAllInvoices() {
 
 function formatInvoiceSheet(newSheet, invoice) {
   const managementEmails = [
-    "alex.rea@casinosnaks.com", "ceci.pagnozzi@casinosnaks.com", "jim.rea@casinosnaks.com", "penny.rea@casinosnaks.com", "jprea8@gmail.com", 
+    "alex.rea@casinosnaks.com",
+    "ceci.pagnozzi@casinosnaks.com",
+    "jim.rea@casinosnaks.com",
+    "penny.rea@casinosnaks.com",
+    "jprea8@gmail.com"
   ]; // Management emails
 
   // Set Invoice Metadata
@@ -532,7 +536,7 @@ function formatInvoiceSheet(newSheet, invoice) {
   }
 
   // Add checkboxes for pushing changes
-  newSheet.getRange("D1").setValue("Push Changes");
+  newSheet.getRange("D1").setValue("Push Changes to QBO");
   newSheet.getRange("D2").insertCheckboxes();
   newSheet.getRange("D3").insertCheckboxes();
 
@@ -540,6 +544,11 @@ function formatInvoiceSheet(newSheet, invoice) {
   newSheet.getRange("E1").setValue("Send PDF to Gchat");
   newSheet.getRange("E2").insertCheckboxes().setValue(false);
   newSheet.getRange("E3").insertCheckboxes().setValue(false);
+
+  // Add "Apply Special Pricing" checkbox setup
+  newSheet.getRange("C1").setValue("Apply Special Pricing");
+  newSheet.getRange("C2").insertCheckboxes().setValue(false);
+  newSheet.getRange("C3").insertCheckboxes().setValue(false);
 
   // Add dropdown for selecting user
   newSheet.getRange("F1").setValue("Select Name");
@@ -559,14 +568,14 @@ function formatInvoiceSheet(newSheet, invoice) {
   let unprotectedRanges = [
     newSheet.getRange(7, 2, row - 7, 1), // Quantities (Column B)
     newSheet.getRange("E2:E3"),           // Checkboxes for sending PDF to Gchat
-    newSheet.getRange("F2")               // Name selection dropdown
+    newSheet.getRange("F2"),              // Name selection dropdown
+    newSheet.getRange("C2:C3")            // Checkboxes for "Apply Special Pricing"
   ];
 
   protection.setUnprotectedRanges(unprotectedRanges);
 
-  Logger.log("✅ Entire sheet locked, only quantities, E2:E3 checkboxes, and F2 dropdown are editable by non-management.");
+  Logger.log("✅ Entire sheet locked, only quantities, checkboxes, and dropdowns are editable by non-management.");
 }
-
 
 function getAllSyncTokens(invoiceIds) {
   if (!invoiceIds.length) {
