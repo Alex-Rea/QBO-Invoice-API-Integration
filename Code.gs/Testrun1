@@ -97,5 +97,16 @@ function formatInvoiceSheet(newSheet, invoice) {
     newSheet.setRowHeight(i + 1, height);
   });
 
-  Logger.log("✅ Entire sheet formatted: Wrapped text, doubled row heights, middle alignment, and adjusted Column A width.");
+  // 🚧 Add dotted horizontal borders
+  const horizontalBorderRange = newSheet.getRange(7, 1, row - 6, 5); // A7 to E(last row)
+  horizontalBorderRange.setBorder(false, false, true, false, false, false, "black", SpreadsheetApp.BorderStyle.DOTTED);
+
+  // 🚧 Add gray vertical borders
+  const verticalBorderRange = newSheet.getRange(7, 1, row - 6, 5); // Same range as above
+  verticalBorderRange.setBorder(false, true, false, true, false, false, "gray");
+
+  // 🚫 Freeze the top row
+  newSheet.setFrozenRows(1);
+
+  Logger.log("✅ Entire sheet formatted: Wrapped text, borders, frozen row, middle alignment, and adjusted Column A width.");
 }
