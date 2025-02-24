@@ -44,22 +44,23 @@ function pushInvoiceToQBO(sheet) {
     var calculatedTotal = 0;
 
     for (var row = 7; row <= lastRow; row++) {
-      var itemName = sheet.getRange("A" + row).getValue().trim();
+      // 🔄 Swapping ItemRef (UPC) with ItemName (Item Number)
+      var itemRef = sheet.getRange("A" + row).getValue().trim(); // Now pulling itemRef from Column A
+      var itemName = sheet.getRange("E" + row).getValue();       // Now pulling itemName from Column E
       var qty = parseFloat(sheet.getRange("B" + row).getValue());
       var rate = parseFloat(sheet.getRange("C" + row).getValue());
       var amount = parseFloat(sheet.getRange("D" + row).getValue());
-      var itemRef = sheet.getRange("E" + row).getValue();
 
       // ✅ Add line item if all fields are valid
       if (itemName && qty && rate && amount && itemRef) {
-        Logger.log(`🛒 Item: ${itemName} | Qty: ${qty} | Rate: ${rate} | Amount: ${amount} | ItemRef: ${itemRef}`);
+        Logger.log(`🛒 Item: ${itemName} | Qty: ${qty} | Rate: ${rate} | Amount: ${amount} | ItemRef (UPC): ${itemRef}`);
 
         invoiceData.Line.push({
           "DetailType": "SalesItemLineDetail",
           "Amount": amount,
-          "Description": itemName,  // Initially set to the sheet-provided name
+          "Description": itemName,  // Use swapped itemName (formerly UPC)
           "SalesItemLineDetail": {
-            "ItemRef": { "value": String(itemRef) },
+            "ItemRef": { "value": String(itemRef) }, // Use swapped itemRef (formerly Item Number)
             "Qty": qty,
             "UnitPrice": rate,
             "TaxCodeRef": { "value": "NON" }
