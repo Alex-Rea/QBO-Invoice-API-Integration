@@ -88,26 +88,25 @@ function formatInvoiceSheet(newSheet, invoice) {
   fullRange.setWrap(true); // Wrap text
   fullRange.setVerticalAlignment("middle"); // Align text to the middle vertically
 
-  // Double width for Column A
-  newSheet.setColumnWidth(1, newSheet.getColumnWidth(1) * 2);
+  // Custom width for Column A (adjust based on your preference)
+  newSheet.setColumnWidth(1, newSheet.getColumnWidth(1) * 1.1);
 
-  // Double row heights for better visibility
-  for (let i = 1; i <= row; i++) {
-    const currentHeight = newSheet.getRowHeight(i);
-    newSheet.setRowHeight(i, currentHeight * 2);
-  }
+  // Custom row height adjustments
+  const rowHeights = Array.from({ length: row }, (_, i) => newSheet.getRowHeight(i + 1) * 1.7);
+  rowHeights.forEach((height, i) => {
+    newSheet.setRowHeight(i + 1, height);
+  });
 
   // ➖ Add dotted horizontal borders between rows
-  newSheet.getRange(7, 1, row - 7, 5).setBorder(null, null, true, null, null, null, "black", SpreadsheetApp.BorderStyle.DOTTED);
+  newSheet.getRange(7, 1, row - 6, 5).setBorder(null, null, true, null, null, null, "black", SpreadsheetApp.BorderStyle.DOTTED);
 
   // ➖ Add gray vertical borders between columns
-  newSheet.getRange(7, 2, row - 7, 1).setBorder(null, true, null, null, null, null, "#cccccc", SpreadsheetApp.BorderStyle.SOLID);
-  newSheet.getRange(7, 3, row - 7, 1).setBorder(null, true, null, null, null, null, "#cccccc", SpreadsheetApp.BorderStyle.SOLID);
-  newSheet.getRange(7, 4, row - 7, 1).setBorder(null, true, null, null, null, null, "#cccccc", SpreadsheetApp.BorderStyle.SOLID);
-  newSheet.getRange(7, 5, row - 7, 1).setBorder(null, true, null, null, null, null, "#cccccc", SpreadsheetApp.BorderStyle.SOLID);
+  for (let col = 2; col <= 5; col++) {
+    newSheet.getRange(7, col, row - 6, 1).setBorder(null, true, null, null, null, null, "#cccccc", SpreadsheetApp.BorderStyle.SOLID);
+  }
 
   // ❄️ Freeze Column A
   newSheet.setFrozenColumns(1);
 
-  Logger.log("✅ Entire sheet formatted: Wrapped text, doubled row heights, middle alignment, borders, and frozen Column A.");
+  Logger.log("✅ Sheet formatted: Text wrapping, adjusted heights, middle alignment, borders, and Column A frozen.");
 }
