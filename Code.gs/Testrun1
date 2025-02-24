@@ -44,51 +44,12 @@ function formatInvoiceSheet(newSheet, invoice) {
     newSheet.getRange("A7").setValue("⚠️ No items found for this invoice.");
   }
 
-  // Add checkboxes for pushing changes
-  newSheet.getRange("D1").setValue("Push Changes to QBO");
-  newSheet.getRange("D2").insertCheckboxes();
-  newSheet.getRange("D3").insertCheckboxes();
-
-  // Add checkboxes for sending PDF to Gchat
-  newSheet.getRange("E1").setValue("Send PDF to Gchat");
-  newSheet.getRange("E2").insertCheckboxes().setValue(false);
-  newSheet.getRange("E3").insertCheckboxes().setValue(false);
-
-  // Add "Apply Special Pricing" checkbox setup
-  newSheet.getRange("C1").setValue("Apply Special Pricing");
-  newSheet.getRange("C2").insertCheckboxes().setValue(false);
-  newSheet.getRange("C3").insertCheckboxes().setValue(false);
-
-  // Add dropdown for selecting user
-  newSheet.getRange("F1").setValue("Select Name");
-  const dropdownValues = ["TABLET 1", "Alex", "Angel", "Ceci", "Ismael", "Jim", "Penny", "Richard"];
-  const rule = SpreadsheetApp.newDataValidation()
-    .requireValueInList(dropdownValues)
-    .setAllowInvalid(false)
-    .build();
-  newSheet.getRange("F2").setDataValidation(rule);
-
-  // 🔒 Lock the entire sheet first
-  const protection = newSheet.protect().setDescription("Invoice Sheet Protection");
-  protection.addEditors(managementEmails);
-  protection.removeEditors(protection.getEditors().filter(editor => !managementEmails.includes(editor.getEmail())));
-
-  // ✅ Define unprotected ranges (only editable by non-management)
-  let unprotectedRanges = [
-    newSheet.getRange(7, 2, row - 7, 1), // Quantities (Column B)
-    newSheet.getRange("E2:E3"),           // Checkboxes for sending PDF to Gchat
-    newSheet.getRange("F2"),              // Name selection dropdown
-    newSheet.getRange("C2:C3")            // Checkboxes for "Apply Special Pricing"
-  ];
-
-  protection.setUnprotectedRanges(unprotectedRanges);
-
   // 🎨 Formatting: Wrap Text, Adjust Sizes, Borders, and Freezing
   const fullRange = newSheet.getRange(1, 1, newSheet.getMaxRows(), newSheet.getMaxColumns());
   fullRange.setWrap(true); // Wrap text
   fullRange.setVerticalAlignment("middle"); // Align text to the middle vertically
 
-  // Custom width for Column A (adjust based on your preference)
+  // Custom width for Column A
   newSheet.setColumnWidth(1, newSheet.getColumnWidth(1) * 1.1);
 
   // Custom row height adjustments
@@ -112,5 +73,18 @@ function formatInvoiceSheet(newSheet, invoice) {
   // ❄️ Freeze Column A
   newSheet.setFrozenColumns(1);
 
-  Logger.log("✅ Sheet formatted: Text wrapping, adjusted heights, middle alignment, borders, and Column A frozen.");
+  // ✅ Apply Protection AFTER formatting
+  const protection = newSheet.protect().setDescription("Invoice Sheet Protection");
+  protection.addEditors(managementEmails);
+  protection.removeEditors(protection.getEditors().filter(editor => !managementEmails.includes(editor.getEmail())));
+
+  let unprotectedRanges = [
+    newSheet.getRange(7, 2, row - 7, 1), // Quantities (Column B)
+    newSheet.getRange("E2:E3"),           // Checkboxes for sending PDF to Gchat
+    newSheet.getRange("F2"),              // Name selection dropdown
+    newSheet.getRange("C2:C3")            // Checkboxes for "Apply Special Pricing"
+  ];
+  protection.setUnprotectedRanges(unprotectedRanges);
+
+  Logger.log("✅ Sheet formatted: Borders applied, text wrapped, middle alignment, frozen columns, and protection set.");
 }
