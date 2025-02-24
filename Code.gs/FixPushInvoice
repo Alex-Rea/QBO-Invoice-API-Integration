@@ -1,28 +1,18 @@
-function getItemNameById(itemId) {
-  // ✅ Use cached item if available
-  if (itemCache[itemId]) {
-    Logger.log(`✅ Cached Item Found: ${itemCache[itemId]}`);
-    return itemCache[itemId];
-  }
-
+function getItemDetailsById(itemId) {
   checkRateLimit();
 
-  // ✅ Skip invalid or null item IDs
-  if (!itemId || itemId === "N/A") {
-    Logger.log("⚠️ Skipping item lookup: No valid item ID.");
-    return "Unknown Item";
+  if (!itemId) {
+    Logger.log("❌ No Item ID provided.");
+    return null;
   }
 
-  // ✅ Fetch from QuickBooks only if not in cache
   const accessToken = getAccessToken();
   if (!accessToken) {
-    Logger.log("❌ No access token, cannot fetch item name.");
-    return "Unknown Item";
+    Logger.log("❌ No access token, cannot fetch item details.");
+    return null;
   }
 
-  const query = `SELECT Name FROM Item WHERE Id = '${itemId}'`;
-  const apiUrl = `${BASE_URL}${COMPANY_ID}/query?query=${encodeURIComponent(query)}`;
-
+  const apiUrl = `${BASE_URL}${COMPANY_ID}/item/${itemId}`;
   const headers = {
     "Authorization": `Bearer ${accessToken}`,
     "Accept": "application/json"
@@ -34,17 +24,17 @@ function getItemNameById(itemId) {
     muteHttpExceptions: true
   };
 
-  const response = fetchWithRetry(apiUrl, options);
+  const response = UrlFetchApp.fetch(apiUrl, options);
   const json = JSON.parse(response.getContentText());
 
-  // ✅ Cache and return the item name if found
-  if (json.QueryResponse && json.QueryResponse.Item && json.QueryResponse.Item.length > 0) {
-    const itemName = json.QueryResponse.Item[0].Name;
-    itemCache[itemId] = itemName;  // ✅ Store in cache
-    Logger.log(`✅ Item Fetched and Cached: ${itemName}`);
-    return itemName;
+  if (json.Item) {
+    Logger.log(`✅ Fetched Item Details: ${JSON.stringify(json.Item)}`);
+    return {
+      Name: json.Item.Name,
+      Description: json.Item.Description || json.Item.SalesDesc || json.Item.Name
+    };
   } else {
     Logger.log(`❌ Item ID not found in QuickBooks: ${itemId}`);
-    return "Unknown Item";
+    return null;
   }
 }
