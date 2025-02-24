@@ -98,12 +98,16 @@ function formatInvoiceSheet(newSheet, invoice) {
   });
 
   // ➖ Add dotted horizontal borders between rows
-  newSheet.getRange(7, 1, row - 6, 5).setBorder(null, null, true, null, null, null, "black", SpreadsheetApp.BorderStyle.DOTTED);
+  const horizontalRange = newSheet.getRange(7, 1, row - 6, 5);
+  horizontalRange.setBorder(false, false, true, false, false, false, "black", SpreadsheetApp.BorderStyle.DOTTED);
+  SpreadsheetApp.flush();
 
   // ➖ Add gray vertical borders between columns
   for (let col = 2; col <= 5; col++) {
-    newSheet.getRange(7, col, row - 6, 1).setBorder(null, true, null, null, null, null, "#cccccc", SpreadsheetApp.BorderStyle.SOLID);
+    let verticalRange = newSheet.getRange(7, col, row - 6, 1);
+    verticalRange.setBorder(false, true, false, false, false, false, "#cccccc", SpreadsheetApp.BorderStyle.SOLID);
   }
+  SpreadsheetApp.flush();
 
   // ❄️ Freeze Column A
   newSheet.setFrozenColumns(1);
