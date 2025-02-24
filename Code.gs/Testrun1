@@ -83,15 +83,19 @@ function formatInvoiceSheet(newSheet, invoice) {
 
   protection.setUnprotectedRanges(unprotectedRanges);
 
-  // 🎨 Formatting: Wrap Text, Adjust Sizes
-  newSheet.getRange(1, 1, newSheet.getMaxRows(), newSheet.getMaxColumns()).setWrap(true); // Wrap text
-  newSheet.setColumnWidth(1, newSheet.getColumnWidth(1) * 2); // Double width for Column A
+  // 🎨 Formatting: Wrap Text, Adjust Sizes, and Middle Align
+  const fullRange = newSheet.getRange(1, 1, newSheet.getMaxRows(), newSheet.getMaxColumns());
+  fullRange.setWrap(true); // Wrap text
+  fullRange.setVerticalAlignment("middle"); // Align text to the middle vertically
 
-  // Double row heights for better visibility
-  for (let i = 1; i <= row; i++) {
-    const currentHeight = newSheet.getRowHeight(i);
-    newSheet.setRowHeight(i, currentHeight * 2);
-  }
+  // Double width for Column A
+  newSheet.setColumnWidth(1, newSheet.getColumnWidth(1) * 2);
 
-  Logger.log("✅ Entire sheet formatted: Wrapped text, doubled row heights, and Column A width adjusted.");
+  // Double row heights for better visibility (bulk setting for better performance)
+  const rowHeights = Array.from({ length: row }, (_, i) => newSheet.getRowHeight(i + 1) * 2);
+  rowHeights.forEach((height, i) => {
+    newSheet.setRowHeight(i + 1, height);
+  });
+
+  Logger.log("✅ Entire sheet formatted: Wrapped text, doubled row heights, middle alignment, and adjusted Column A width.");
 }
