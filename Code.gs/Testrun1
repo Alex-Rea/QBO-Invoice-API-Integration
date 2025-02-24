@@ -91,17 +91,20 @@ function formatInvoiceSheet(newSheet, invoice) {
   // Double width for Column A
   newSheet.setColumnWidth(1, newSheet.getColumnWidth(1) * 2);
 
-  // Double row heights for better visibility (bulk setting for better performance)
-  const rowHeights = Array.from({ length: row }, (_, i) => newSheet.getRowHeight(i + 1) * 2);
-  rowHeights.forEach((height, i) => {
-    newSheet.setRowHeight(i + 1, height);
-  });
+  // Double row heights for better visibility
+  for (let i = 1; i <= row; i++) {
+    const currentHeight = newSheet.getRowHeight(i);
+    newSheet.setRowHeight(i, currentHeight * 2);
+  }
 
   // ➖ Add dotted horizontal borders between rows
-  newSheet.getRange(7, 1, row - 7, 5).setBorder(false, false, true, false, false, false, "black", SpreadsheetApp.BorderStyle.DOTTED);
+  newSheet.getRange(7, 1, row - 7, 5).setBorder(null, null, true, null, null, null, "black", SpreadsheetApp.BorderStyle.DOTTED);
 
-  // ➖ Add gray vertical lines between columns (middle separators)
-  newSheet.getRange(7, 2, row - 7, 4).setBorder(false, true, false, true, false, false, "#cccccc", SpreadsheetApp.BorderStyle.SOLID);
+  // ➖ Add gray vertical borders between columns
+  newSheet.getRange(7, 2, row - 7, 1).setBorder(null, true, null, null, null, null, "#cccccc", SpreadsheetApp.BorderStyle.SOLID);
+  newSheet.getRange(7, 3, row - 7, 1).setBorder(null, true, null, null, null, null, "#cccccc", SpreadsheetApp.BorderStyle.SOLID);
+  newSheet.getRange(7, 4, row - 7, 1).setBorder(null, true, null, null, null, null, "#cccccc", SpreadsheetApp.BorderStyle.SOLID);
+  newSheet.getRange(7, 5, row - 7, 1).setBorder(null, true, null, null, null, null, "#cccccc", SpreadsheetApp.BorderStyle.SOLID);
 
   // ❄️ Freeze Column A
   newSheet.setFrozenColumns(1);
