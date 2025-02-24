@@ -44,22 +44,22 @@ function pushInvoiceToQBO(sheet) {
     var calculatedTotal = 0;
 
     for (var row = 7; row <= lastRow; row++) {
-      var itemName = sheet.getRange("A" + row).getValue().trim();
+      var salesDescription = sheet.getRange("A" + row).getValue().trim(); // Previously itemName
       var qty = parseFloat(sheet.getRange("B" + row).getValue());
       var rate = parseFloat(sheet.getRange("C" + row).getValue());
       var amount = parseFloat(sheet.getRange("D" + row).getValue());
-      var itemRef = sheet.getRange("E" + row).getValue();
+      var sku = sheet.getRange("E" + row).getValue(); // Previously itemRef
 
       // ✅ Add line item if all fields are valid
-      if (itemName && qty && rate && amount && itemRef) {
-        Logger.log(`🛒 Item: ${itemName} | Qty: ${qty} | Rate: ${rate} | Amount: ${amount} | ItemRef: ${itemRef}`);
+      if (salesDescription && qty && rate && amount && sku) {
+        Logger.log(`🛒 Sales Description: ${salesDescription} | Qty: ${qty} | Rate: ${rate} | Amount: ${amount} | SKU: ${sku}`);
 
         invoiceData.Line.push({
           "DetailType": "SalesItemLineDetail",
           "Amount": amount,
-          "Description": itemName,  // Initially set to the sheet-provided name
+          "Description": sku,  // Set SKU in the description field
           "SalesItemLineDetail": {
-            "ItemRef": { "value": String(itemRef) },
+            "ItemRef": { "value": String(sku) }, // Keep SKU in the item reference
             "Qty": qty,
             "UnitPrice": rate,
             "TaxCodeRef": { "value": "NON" }
@@ -73,15 +73,15 @@ function pushInvoiceToQBO(sheet) {
     // ✅ Update the invoice total based on actual calculations
     invoiceData.TotalAmt = calculatedTotal;
 
-    // ✅ Overwrite item names with correct names from QuickBooks (if mismatched)
+    // ✅ Overwrite SKU and Sales Description with correct values from QuickBooks
     invoiceData.Line.forEach((line) => {
       if (line.SalesItemLineDetail) {
         var itemId = line.SalesItemLineDetail.ItemRef.value;
-        var correctName = getItemNameById(itemId); // Fetch correct name from QuickBooks
+        var correctSKU = getItemNameById(itemId); // Fetch correct SKU from QuickBooks
 
-        if (correctName && line.Description !== correctName) {
-          Logger.log(`🔄 Overwriting Description: ${line.Description} → ${correctName}`);
-          line.Description = correctName;  // Fix mismatched item names
+        if (correctSKU && line.Description !== correctSKU) {
+          Logger.log(`🔄 Overwriting SKU in Description: ${line.Description} → ${correctSKU}`);
+          line.Description = correctSKU;  // Replace with correct SKU
         }
       }
     });
@@ -94,5 +94,132 @@ function pushInvoiceToQBO(sheet) {
 
   } catch (error) {
     Logger.log("❌ Error in pushInvoiceToQBO: " + error.message);
+  }
+}
+
+
+function updateInvoiceInQBO(invoiceData) {
+  checkRateLimit();
+
+  try {
+    const accessToken = getAccessToken();
+    if (!accessToken) {
+      Logger.log("❌ No access token, cannot update invoice.");
+      return;
+    }
+
+    // ✅ Fetch existing invoice details to get SyncToken, Customer ID, and Email
+    const existingInvoice = getInvoiceByDocNumber(invoiceData.DocNumber);
+    if (!existingInvoice || !existingInvoice.Id || !existingInvoice.SyncToken) {
+      Logger.log("❌ Could not retrieve invoice details for updating.");
+      return;
+    }
+
+    // ✅ Preserve critical fields (Customer ID, SyncToken, Email)
+    invoiceData.Id = existingInvoice.Id;
+    invoiceData.SyncToken = existingInvoice.SyncToken;
+    invoiceData.CustomerRef = { "value": existingInvoice.CustomerRef.value }; // Ensure correct Customer ID
+
+    // ✅ Preserve BillEmail if it exists
+    if (existingInvoice.BillEmail && existingInvoice.BillEmail.Address) {
+      invoiceData.BillEmail = { "Address": existingInvoice.BillEmail.Address };
+      Logger.log("📧 Preserved Email: " + existingInvoice.BillEmail.Address);
+    } else {
+      // ✅ Fetch email from customer profile if missing
+      const customerEmail = getCustomerEmailById(existingInvoice.CustomerRef.value);
+      if (customerEmail) {
+        invoiceData.BillEmail = { "Address": customerEmail };
+        Logger.log("📧 Retrieved Customer Email: " + customerEmail);
+      } else {
+        Logger.log("⚠️ No email found, skipping BillEmail field.");
+      }
+    }
+
+    // ✅ Ensure line items have correct calculations
+    invoiceData.Line.forEach((line) => {
+      if (line.SalesItemLineDetail) {
+        var unitPrice = parseFloat(line.SalesItemLineDetail.UnitPrice);
+        var qty = parseFloat(line.SalesItemLineDetail.Qty);
+
+        // ✅ Ensure Amount is correctly calculated to avoid QuickBooks 6070 Error
+        line.Amount = parseFloat((unitPrice * qty).toFixed(2));
+
+        // ✅ Ensure Tax Code is set
+        line.SalesItemLineDetail.TaxCodeRef = { "value": "NON" };
+      }
+    });
+
+    const apiUrl = BASE_URL + COMPANY_ID + "/invoice";
+
+    const headers = {
+      "Authorization": "Bearer " + accessToken,
+      "Accept": "application/json",
+      "Content-Type": "application/json"
+    };
+
+    const payload = JSON.stringify(invoiceData);
+    Logger.log("📤 Sending Invoice Update (UPDATE): " + payload);
+
+    const options = {
+      method: "post",
+      headers: headers,
+      muteHttpExceptions: true,
+      payload: payload
+    };
+
+    let response = fetchWithRetry(apiUrl, options);
+    let responseJson = JSON.parse(response.getContentText());
+
+    if (response.getResponseCode() === 200) {
+      Logger.log("✅ QuickBooks API Update Successful!");
+      return;
+    } 
+    
+    // ✅ Handle API Errors
+    else if (responseJson.Fault && responseJson.Fault.Error) {
+      let errorCode = responseJson.Fault.Error[0].code;
+
+      // ✅ Ensure retryCount is properly initialized
+      if (typeof invoiceData.retryCount === "undefined") {
+        invoiceData.retryCount = 0; // Initialize retry count only once
+      }
+
+      if (errorCode === "5010" && invoiceData.retryCount < 3) { // 🛑 Stale Object Error
+        Logger.log("⚠️ Stale Object Error Detected! Fetching latest SyncToken...");
+
+        const syncTokens = getAllSyncTokens([invoiceData.Id]); // Fetch in batch
+        let latestSyncToken = syncTokens[invoiceData.Id];
+
+        if (!latestSyncToken) {
+          Logger.log("❌ Failed to fetch the latest SyncToken. Update aborted.");
+          return;
+        }
+
+        invoiceData.SyncToken = latestSyncToken;
+        invoiceData.retryCount++; // Increment retry count
+        Logger.log(`🔄 Retrying update (Attempt ${invoiceData.retryCount}) with new SyncToken: ${latestSyncToken}`);
+
+        return updateInvoiceInQBO(invoiceData); // Retry with new token
+      } else if (invoiceData.retryCount >= 3) {
+        Logger.log("❌ Max retries reached for Stale Object Error. Update aborted.");
+        return; // 🔴 Prevents further execution after max retries
+      }
+
+      // 🚀 **Remove retryCount before sending to QuickBooks**
+      delete invoiceData.retryCount;
+
+      // ✅ Proceed with the final API request
+      const response = fetchWithRetry(apiUrl, options);
+      Logger.log("✅ QuickBooks API Response: " + response.getContentText());
+
+      if (response && response.getResponseCode() !== 200) { 
+        let responseJson = JSON.parse(response.getContentText());
+        if (responseJson.Fault) {
+          Logger.log("❌ API Error: " + JSON.stringify(responseJson.Fault));
+        }
+      }
+    }
+  } catch (error) {
+    Logger.log("❌ Error in updateInvoiceInQBO: " + error.message);
   }
 }
