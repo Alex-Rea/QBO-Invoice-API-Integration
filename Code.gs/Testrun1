@@ -83,7 +83,7 @@ function formatInvoiceSheet(newSheet, invoice) {
 
   protection.setUnprotectedRanges(unprotectedRanges);
 
-  // 🎨 Formatting: Wrap Text, Adjust Sizes, and Middle Align
+  // 🎨 Formatting: Wrap Text, Adjust Sizes, Borders, and Freezing
   const fullRange = newSheet.getRange(1, 1, newSheet.getMaxRows(), newSheet.getMaxColumns());
   fullRange.setWrap(true); // Wrap text
   fullRange.setVerticalAlignment("middle"); // Align text to the middle vertically
@@ -97,16 +97,14 @@ function formatInvoiceSheet(newSheet, invoice) {
     newSheet.setRowHeight(i + 1, height);
   });
 
-  // 🚧 Add dotted horizontal borders
-  const horizontalBorderRange = newSheet.getRange(7, 1, row - 6, 5); // A7 to E(last row)
-  horizontalBorderRange.setBorder(false, false, true, false, false, false, "black", SpreadsheetApp.BorderStyle.DOTTED);
+  // ➖ Add dotted horizontal borders between rows
+  newSheet.getRange(7, 1, row - 7, 5).setBorder(false, false, true, false, false, false, "black", SpreadsheetApp.BorderStyle.DOTTED);
 
-  // 🚧 Add gray vertical borders
-  const verticalBorderRange = newSheet.getRange(7, 1, row - 6, 5); // Same range as above
-  verticalBorderRange.setBorder(false, true, false, true, false, false, "gray");
+  // ➖ Add gray vertical lines between columns (middle separators)
+  newSheet.getRange(7, 2, row - 7, 4).setBorder(false, true, false, true, false, false, "#cccccc", SpreadsheetApp.BorderStyle.SOLID);
 
-  // 🚫 Freeze the top row
-  newSheet.setFrozenRows(1);
+  // ❄️ Freeze Column A
+  newSheet.setFrozenColumns(1);
 
-  Logger.log("✅ Entire sheet formatted: Wrapped text, borders, frozen row, middle alignment, and adjusted Column A width.");
+  Logger.log("✅ Entire sheet formatted: Wrapped text, doubled row heights, middle alignment, borders, and frozen Column A.");
 }
