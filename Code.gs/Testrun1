@@ -70,8 +70,8 @@ function formatInvoiceSheet(newSheet, invoice) {
 
   // 🔒 Lock the entire sheet first
   const protection = newSheet.protect().setDescription("Invoice Sheet Protection");
-  protection.addEditors(managementEmails); // Only management can edit locked cells
-  protection.removeEditors(protection.getEditors().filter(editor => !managementEmails.includes(editor.getEmail()))); // Remove non-management editors
+  protection.addEditors(managementEmails);
+  protection.removeEditors(protection.getEditors().filter(editor => !managementEmails.includes(editor.getEmail())));
 
   // ✅ Define unprotected ranges (only editable by non-management)
   let unprotectedRanges = [
@@ -83,5 +83,15 @@ function formatInvoiceSheet(newSheet, invoice) {
 
   protection.setUnprotectedRanges(unprotectedRanges);
 
-  Logger.log("✅ Entire sheet locked, only quantities, checkboxes, and dropdowns are editable by non-management.");
+  // 🎨 Formatting: Wrap Text, Adjust Sizes
+  newSheet.getRange(1, 1, newSheet.getMaxRows(), newSheet.getMaxColumns()).setWrap(true); // Wrap text
+  newSheet.setColumnWidth(1, newSheet.getColumnWidth(1) * 2); // Double width for Column A
+
+  // Double row heights for better visibility
+  for (let i = 1; i <= row; i++) {
+    const currentHeight = newSheet.getRowHeight(i);
+    newSheet.setRowHeight(i, currentHeight * 2);
+  }
+
+  Logger.log("✅ Entire sheet formatted: Wrapped text, doubled row heights, and Column A width adjusted.");
 }
