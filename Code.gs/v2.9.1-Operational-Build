@@ -341,14 +341,14 @@ function refreshInvoices() {
 
   Logger.log("✅ Both checkboxes checked in 'Menu'! Refreshing Invoices...");
 
-  // ✅ Step 2: Fetch only the 10 most recent invoices from QuickBooks
+  // ✅ Step 2: Fetch only the 15 most recent invoices from QuickBooks
   const accessToken = getAccessToken();
   if (!accessToken) {
     Logger.log("❌ No access token retrieved!");
     return;
   }
 
-  const query = `SELECT * FROM Invoice ORDERBY TxnDate DESC STARTPOSITION 1 MAXRESULTS 10`;
+  const query = `SELECT * FROM Invoice ORDERBY TxnDate DESC STARTPOSITION 1 MAXRESULTS 15`;
   const apiUrl = BASE_URL + COMPANY_ID + "/query?query=" + encodeURIComponent(query);
 
   const options = {
@@ -369,7 +369,7 @@ function refreshInvoices() {
   }
 
   const invoices = json.QueryResponse.Invoice;
-  Logger.log(`✅ Retrieved the 10 most recent invoices.`);
+  Logger.log(`✅ Retrieved the 15 most recent invoices.`);
 
   // ✅ Step 3: Identify and delete old invoice sheets using Set for faster lookup
   const sheets = ss.getSheets();
@@ -389,7 +389,7 @@ function refreshInvoices() {
     }
   });
 
-  // ✅ Step 4: Recreate the menu links with exactly 10 invoices
+  // ✅ Step 4: Recreate the menu links with exactly 15 invoices
   let invoiceLinks = [];
   let invoiceDescriptions = [];
 
@@ -413,7 +413,7 @@ function refreshInvoices() {
     invoiceDescriptions.push([customerName]); // Column B (Customer Name)
   });
 
-  // ✅ Overwrite the menu sheet with exactly 10 invoices
+  // ✅ Overwrite the menu sheet with exactly 15 invoices
   const totalLinks = invoiceLinks.length;
   if (totalLinks > 0) {
     const linkRange = menuSheet.getRange(5, 1, totalLinks, 1);
@@ -422,7 +422,7 @@ function refreshInvoices() {
     linkRange.setFormulas(invoiceLinks);
     descRange.setValues(invoiceDescriptions);
 
-    // ✅ Clear extra cells beyond the most recent 10
+    // ✅ Clear extra cells beyond the most recent 15
     if (totalLinks < 96) {
       const extraClearRange = menuSheet.getRange(5 + totalLinks, 1, 96 - totalLinks, 2);
       extraClearRange.clearContent();
@@ -435,7 +435,7 @@ function refreshInvoices() {
   menuSheet.getRange("A2").setValue(false);
   menuSheet.getRange("A3").setValue(false);
 
-  Logger.log("✅ Invoice refresh complete! Menu sheet updated with the 10 most recent invoices.");
+  Logger.log("✅ Invoice refresh complete! Menu sheet updated with the 15 most recent invoices.");
 }
 
 
