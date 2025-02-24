@@ -44,22 +44,22 @@ function pushInvoiceToQBO(sheet) {
     var calculatedTotal = 0;
 
     for (var row = 7; row <= lastRow; row++) {
-      var itemName = sheet.getRange("A" + row).getValue().trim();
+      var salesDescription = sheet.getRange("A" + row).getValue().trim(); // Previously itemName
       var qty = parseFloat(sheet.getRange("B" + row).getValue());
       var rate = parseFloat(sheet.getRange("C" + row).getValue());
       var amount = parseFloat(sheet.getRange("D" + row).getValue());
-      var itemRef = sheet.getRange("E" + row).getValue();
+      var sku = sheet.getRange("E" + row).getValue(); // Previously itemRef
 
       // ✅ Add line item if all fields are valid
-      if (itemName && qty && rate && amount && itemRef) {
-        Logger.log(`🛒 Item: ${itemName} | Qty: ${qty} | Rate: ${rate} | Amount: ${amount} | ItemRef: ${itemRef}`);
+      if (salesDescription && qty && rate && amount && sku) {
+        Logger.log(`🛒 Sales Description: ${salesDescription} | Qty: ${qty} | Rate: ${rate} | Amount: ${amount} | SKU: ${sku}`);
 
         invoiceData.Line.push({
           "DetailType": "SalesItemLineDetail",
           "Amount": amount,
-          "Description": itemName,  // Initially set to the sheet-provided name
+          "Description": sku,  // Set SKU in the description field
           "SalesItemLineDetail": {
-            "ItemRef": { "value": String(itemRef) },
+            "ItemRef": { "value": String(sku) }, // Keep SKU in the item reference
             "Qty": qty,
             "UnitPrice": rate,
             "TaxCodeRef": { "value": "NON" }
@@ -73,15 +73,15 @@ function pushInvoiceToQBO(sheet) {
     // ✅ Update the invoice total based on actual calculations
     invoiceData.TotalAmt = calculatedTotal;
 
-    // ✅ Overwrite item names with correct names from QuickBooks (if mismatched)
+    // ✅ Overwrite SKU and Sales Description with correct values from QuickBooks
     invoiceData.Line.forEach((line) => {
       if (line.SalesItemLineDetail) {
         var itemId = line.SalesItemLineDetail.ItemRef.value;
-        var correctName = getItemNameById(itemId); // Fetch correct name from QuickBooks
+        var correctSKU = getItemNameById(itemId); // Fetch correct SKU from QuickBooks
 
-        if (correctName && line.Description !== correctName) {
-          Logger.log(`🔄 Overwriting Description: ${line.Description} → ${correctName}`);
-          line.Description = correctName;  // Fix mismatched item names
+        if (correctSKU && line.Description !== correctSKU) {
+          Logger.log(`🔄 Overwriting SKU in Description: ${line.Description} → ${correctSKU}`);
+          line.Description = correctSKU;  // Replace with correct SKU
         }
       }
     });
@@ -184,42 +184,40 @@ function updateInvoiceInQBO(invoiceData) {
         invoiceData.retryCount = 0; // Initialize retry count only once
       }
 
-if (errorCode === "5010" && invoiceData.retryCount < 3) { // 🛑 Stale Object Error
-    Logger.log("⚠️ Stale Object Error Detected! Fetching latest SyncToken...");
+      if (errorCode === "5010" && invoiceData.retryCount < 3) { // 🛑 Stale Object Error
+        Logger.log("⚠️ Stale Object Error Detected! Fetching latest SyncToken...");
 
-    const syncTokens = getAllSyncTokens([invoiceData.Id]); // Fetch in batch
-    let latestSyncToken = syncTokens[invoiceData.Id];
+        const syncTokens = getAllSyncTokens([invoiceData.Id]); // Fetch in batch
+        let latestSyncToken = syncTokens[invoiceData.Id];
 
-    if (!latestSyncToken) {
-        Logger.log("❌ Failed to fetch the latest SyncToken. Update aborted.");
-        return;
-    }
+        if (!latestSyncToken) {
+          Logger.log("❌ Failed to fetch the latest SyncToken. Update aborted.");
+          return;
+        }
 
-    invoiceData.SyncToken = latestSyncToken;
-    invoiceData.retryCount++; // Increment retry count
-    Logger.log(`🔄 Retrying update (Attempt ${invoiceData.retryCount}) with new SyncToken: ${latestSyncToken}`);
+        invoiceData.SyncToken = latestSyncToken;
+        invoiceData.retryCount++; // Increment retry count
+        Logger.log(`🔄 Retrying update (Attempt ${invoiceData.retryCount}) with new SyncToken: ${latestSyncToken}`);
 
-    return updateInvoiceInQBO(invoiceData); // Retry with new token
-} else if (invoiceData.retryCount >= 3) {
-    Logger.log("❌ Max retries reached for Stale Object Error. Update aborted.");
-    return; // 🔴 Prevents further execution after max retries
-}
+        return updateInvoiceInQBO(invoiceData); // Retry with new token
+      } else if (invoiceData.retryCount >= 3) {
+        Logger.log("❌ Max retries reached for Stale Object Error. Update aborted.");
+        return; // 🔴 Prevents further execution after max retries
+      }
 
-// 🚀 **Remove retryCount before sending to QuickBooks**
-delete invoiceData.retryCount;
+      // 🚀 **Remove retryCount before sending to QuickBooks**
+      delete invoiceData.retryCount;
 
-// ✅ Proceed with the final API request
-const response = fetchWithRetry(apiUrl, options);
-Logger.log("✅ QuickBooks API Response: " + response.getContentText());
+      // ✅ Proceed with the final API request
+      const response = fetchWithRetry(apiUrl, options);
+      Logger.log("✅ QuickBooks API Response: " + response.getContentText());
 
-if (response && response.getResponseCode() !== 200) { 
-    let responseJson = JSON.parse(response.getContentText());
-    if (responseJson.Fault) {
-        Logger.log("❌ API Error: " + JSON.stringify(responseJson.Fault));
-    }
-}
-
-
+      if (response && response.getResponseCode() !== 200) { 
+        let responseJson = JSON.parse(response.getContentText());
+        if (responseJson.Fault) {
+          Logger.log("❌ API Error: " + JSON.stringify(responseJson.Fault));
+        }
+      }
     }
   } catch (error) {
     Logger.log("❌ Error in updateInvoiceInQBO: " + error.message);
